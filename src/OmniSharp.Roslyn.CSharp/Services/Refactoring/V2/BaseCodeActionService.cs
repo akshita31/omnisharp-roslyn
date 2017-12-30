@@ -61,17 +61,18 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
                 return Array.Empty<AvailableCodeAction>();
             }
 
-            var codeActions = new List<CodeAction>();
+            List<CodeActionNode> nodesList = new List<CodeActionNode>();
 
             var sourceText = await document.GetTextAsync();
             var span = GetTextSpan(request, sourceText);
 
-            await CollectCodeFixesActions(document, span, codeActions);
-            await CollectRefactoringActions(document, span, codeActions);
-
+            await CollectCodeFixesActions(document, span, nodesList);
+            await CollectRefactoringActions(document, span, nodesList);
+            
             // TODO: Determine good way to order code actions.
-            codeActions.Reverse();
+            //codeActions.Reverse();
 
+            var codeActions = OrderCodeActions(nodesList);
             // Be sure to filter out any code actions that inherit from CodeActionWithOptions.
             // This isn't a great solution and might need changing later, but every Roslyn code action
             // derived from this type tries to display a dialog. For now, this is a reasonable solution.
@@ -79,6 +80,12 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
                 .Where(a => !a.CodeAction.GetType().GetTypeInfo().IsSubclassOf(typeof(CodeActionWithOptions)));
 
             return availableActions;
+        }
+
+        private List<CodeAction> OrderCodeActions(List<CodeActionNode> nodesList)
+        {
+            var graph = new Graph(nodesList);
+            return graph.TopologicalSort();
         }
 
         private TextSpan GetTextSpan(ICodeActionRequest request, SourceText sourceText)
@@ -94,7 +101,7 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
             return new TextSpan(position, length: 0);
         }
 
-        private async Task CollectCodeFixesActions(Document document, TextSpan span, List<CodeAction> codeActions)
+        private async Task CollectCodeFixesActions(Document document, TextSpan span, List<CodeActionNode> nodesList)
         {
             Dictionary<TextSpan, List<Diagnostic>> aggregatedDiagnostics = null;
 
@@ -122,11 +129,11 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
                 var diagnosticSpan = kvp.Key;
                 var diagnosticsWithSameSpan = kvp.Value.OrderByDescending(d => d.Severity);
 
-                await AppendFixesAsync(document, diagnosticSpan, diagnosticsWithSameSpan, codeActions);
+                await AppendFixesAsync(document, diagnosticSpan, diagnosticsWithSameSpan, nodesList);
             }
         }
 
-        private async Task AppendFixesAsync(Document document, TextSpan span, IEnumerable<Diagnostic> diagnostics, List<CodeAction> codeActions)
+        private async Task AppendFixesAsync(Document document, TextSpan span, IEnumerable<Diagnostic> diagnostics, List<CodeActionNode> nodesList)
         {
             foreach (var provider in this.Providers)
             {
@@ -135,7 +142,10 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
                     var fixableDiagnostics = diagnostics.Where(d => HasFix(codeFixProvider, d.Id)).ToImmutableArray();
                     if (fixableDiagnostics.Length > 0)
                     {
-                        var context = new CodeFixContext(document, span, fixableDiagnostics, (a, _) => codeActions.Add(a), CancellationToken.None);
+                        var exportAttribute = codeFixProvider.GetType().GetCustomAttribute(typeof(ExportCodeFixProviderAttribute));
+                        var providerName = exportAttribute is ExportCodeFixProviderAttribute ? ((ExportCodeFixProviderAttribute)exportAttribute).Name : "";
+                        var orderAttributes = codeFixProvider.GetType().GetCustomAttributes(typeof(ExtensionOrderAttribute), true).Select(attr => (ExtensionOrderAttribute)attr).ToList();
+                        var context = new CodeFixContext(document, span, fixableDiagnostics, (a, _) => AddCodeActionNode(a, providerName, orderAttributes, nodesList), CancellationToken.None);
 
                         try
                         {
@@ -148,6 +158,13 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
                     }
                 }
             }
+        }
+
+        private void AddCodeActionNode(CodeAction a, string providerName, List<ExtensionOrderAttribute> attributes, List<CodeActionNode> nodesList)
+        {
+            CodeActionNode node = new CodeActionNode(a, providerName);
+            attributes.ForEach(attr => node.AddAttribute(attr));
+            nodesList.Add(node);
         }
 
         private bool HasFix(CodeFixProvider codeFixProvider, string diagnosticId)
@@ -177,7 +194,7 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
             return true;
         }
 
-        private async Task CollectRefactoringActions(Document document, TextSpan span, List<CodeAction> codeActions)
+        private async Task CollectRefactoringActions(Document document, TextSpan span, List<CodeActionNode> nodesList)
         {
             foreach (var provider in this.Providers)
             {
@@ -188,7 +205,10 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
                         continue;
                     }
 
-                    var context = new CodeRefactoringContext(document, span, a => codeActions.Add(a), CancellationToken.None);
+                    var exportAttribute = codeRefactoringProvider.GetType().GetCustomAttribute(typeof(ExportCodeRefactoringProviderAttribute));
+                    var providerName = exportAttribute is ExportCodeRefactoringProviderAttribute ? ((ExportCodeRefactoringProviderAttribute)exportAttribute).Name : "";
+                    var attributes = codeRefactoringProvider.GetType().GetCustomAttributes(typeof(ExtensionOrderAttribute), true).Select(attr => (ExtensionOrderAttribute)attr).ToList();
+                    var context = new CodeRefactoringContext(document, span, a => AddCodeActionNode(a, providerName, attributes, nodesList), CancellationToken.None);
 
                     try
                     {
