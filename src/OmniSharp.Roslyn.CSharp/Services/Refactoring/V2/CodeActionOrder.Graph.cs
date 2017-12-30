@@ -10,23 +10,29 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
     class Graph
     {
         private Dictionary<string, List<CodeActionNode>> Nodes;
-        public Graph(List<CodeActionNode> nodesList)
+
+        private Graph()
         {
             Nodes = new Dictionary<string, List<CodeActionNode>>();
+        }
+        public static Graph GetGraph(List<CodeActionNode> nodesList)
+        {
+            var graph = new Graph();
+            
             foreach (CodeActionNode node in nodesList)
             {
-                if (! Nodes.ContainsKey(node.ProviderName))
-                    Nodes[node.ProviderName] = new List<CodeActionNode>();
-                Nodes[node.ProviderName].Add(node);
+                if (! graph.Nodes.ContainsKey(node.ProviderName))
+                   graph. Nodes[node.ProviderName] = new List<CodeActionNode>();
+                graph.Nodes[node.ProviderName].Add(node);
             }
 
             foreach(CodeActionNode node in nodesList)
             {
                 foreach(var before in node.Before)
                 {
-                    if (Nodes.ContainsKey(before))
+                    if (graph.Nodes.ContainsKey(before))
                     {
-                        foreach( var beforeNode in Nodes[before])
+                        foreach( var beforeNode in graph.Nodes[before])
                         {
                             beforeNode.NodesBeforeMeSet.Add(node);
                         }
@@ -35,15 +41,17 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
 
                 foreach (var after in node.After)
                 {
-                    if (Nodes.ContainsKey(after))
+                    if (graph.Nodes.ContainsKey(after))
                     {
-                        foreach (var afterNode in Nodes[after])
+                        foreach (var afterNode in graph.Nodes[after])
                         {
                             node.NodesBeforeMeSet.Add(afterNode);
                         }
                     }     
                 }
-            } 
+            }
+
+            return graph;
         }
 
         public List<CodeAction> TopologicalSort()

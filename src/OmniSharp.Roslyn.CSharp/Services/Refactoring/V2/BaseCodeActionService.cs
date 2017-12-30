@@ -84,7 +84,7 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
 
         private List<CodeAction> OrderCodeActions(List<CodeActionNode> nodesList)
         {
-            var graph = new Graph(nodesList);
+            var graph = Graph.GetGraph(nodesList);
             return graph.TopologicalSort();
         }
 
@@ -160,10 +160,9 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
             }
         }
 
-        private void AddCodeActionNode(CodeAction a, string providerName, List<ExtensionOrderAttribute> attributes, List<CodeActionNode> nodesList)
+        private void AddCodeActionNode(CodeAction codeAction, string providerName, List<ExtensionOrderAttribute> orderAttributes, List<CodeActionNode> nodesList)
         {
-            CodeActionNode node = new CodeActionNode(a, providerName);
-            attributes.ForEach(attr => node.AddAttribute(attr));
+            CodeActionNode node = new CodeActionNode(codeAction, providerName, orderAttributes);
             nodesList.Add(node);
         }
 

@@ -13,16 +13,17 @@ namespace OmniSharp.Roslyn.CSharp.Services.Refactoring.V2
         public string ProviderName { get; set; }
         public HashSet<CodeActionNode> NodesBeforeMeSet { get; set; }
         
-        public CodeActionNode(CodeAction codeAction, string providerName)
+        public CodeActionNode(CodeAction codeAction, string providerName, List<ExtensionOrderAttribute> orderAttributes)
         {
             CodeAction = codeAction;
             ProviderName = providerName;
             Before = new List<string>();
             After = new List<string>();
             NodesBeforeMeSet = new HashSet<CodeActionNode>();
+            orderAttributes.ForEach(attr => AddAttribute(attr));
         }
 
-        public void AddAttribute(ExtensionOrderAttribute attribute)
+        private void AddAttribute(ExtensionOrderAttribute attribute)
         {
             if(attribute.Before != null)
                 Before.Add(attribute.Before);
